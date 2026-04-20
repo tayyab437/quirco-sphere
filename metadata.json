@@ -1,0 +1,9 @@
+{
+  "name": "Remix: QuirkoSphere",
+  "description": "AI-Powered Multi-Agent Social Media Content Manager with OAuth integrations and analytics.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
