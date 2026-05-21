@@ -5,11 +5,55 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Dynamic process.env to .env sync for client bundler compatibility
+try {
+  const keysToSync = [
+    "GEMINI_API_KEY",
+    "APP_URL",
+    "VITE_SUPABASE_URL",
+    "VITE_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "VITE_FB_APP_ID",
+    "FACEBOOK_CLIENT_SECRET",
+    "VITE_LI_CLIENT_ID",
+    "LINKEDIN_CLIENT_SECRET",
+    "VITE_IG_APP_ID",
+    "INSTAGRAM_CLIENT_SECRET"
+  ];
+  const envFilePath = path.join(process.cwd(), ".env");
+  let existingVars: Record<string, string> = {};
+
+  if (fs.existsSync(envFilePath)) {
+    const content = fs.readFileSync(envFilePath, "utf8");
+    content.split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+        const parts = trimmed.split("=");
+        const key = parts[0].trim();
+        const value = parts.slice(1).join("=").trim().replace(/^['"]|['"]$/g, '');
+        existingVars[key] = value;
+      }
+    });
+  }
+
+  const updatedLines: string[] = [];
+  keysToSync.forEach(key => {
+    const value = process.env[key] || existingVars[key] || "";
+    updatedLines.push(`${key}="${value.replace(/"/g, '\\"')}"`);
+  });
+
+  fs.writeFileSync(envFilePath, updatedLines.join("\n") + "\n");
+  console.log("[EnvSync] Synchronized process environment variables into .env.");
+} catch (err: any) {
+  console.error("[EnvSync] Error during environment file synchronization:", err.message);
+}
 
 let supabaseClient: any = null;
 
@@ -493,23 +537,112 @@ async function startServer() {
       }
     };
 
+    const webhookURL = "https://unlicentiated-earline-accordingly.ngrok-free.dev/webhook/fb-post";
+    let sentToWebhook = false;
+    let webhookError: string | null = null;
+
+    const hasFBorIG = platforms.some(p => p === 'facebook' || p === 'instagram');
+    
+    if (hasFBorIG) {
+      try {
+        console.log(`[PublishTask] [${postId}] Sending facebook/instagram post request to webhook: ${webhookURL}`);
+        
+        // Gather any connected accounts for FB/IG if they exist to pass to the webhook
+        const platformAccounts: any = {};
+        if (supabase) {
+          for (const p of platforms) {
+            if (p === 'facebook' || p === 'instagram') {
+              const { data: acc } = await supabase
+                .from("social_accounts")
+                .select("account_id, account_name, access_token")
+                .eq("user_id", userId)
+                .eq("platform", p)
+                .maybeSingle();
+              if (acc) {
+                platformAccounts[p] = {
+                  accountId: acc.account_id,
+                  accountName: acc.account_name,
+                  accessToken: acc.access_token
+                };
+              }
+            }
+          }
+        }
+
+        const payload = {
+          postId: post.id,
+          userId: post.user_id,
+          content: post.content,
+          mediaUrl: post.media_url,
+          media_url: post.media_url,
+          platforms: platforms.filter(p => p === 'facebook' || p === 'instagram'),
+          allPlatforms: platforms,
+          timestamp: new Date().toISOString(),
+          platformAccounts: platformAccounts,
+          post: post
+        };
+
+        const headers = {
+          'Content-Type': 'application/json'
+        };
+
+        let response;
+        try {
+          response = await axios.post(webhookURL, payload, {
+            headers,
+            timeout: 25000 // 25s timeout
+          });
+          console.log(`[PublishTask] [${postId}] Webhook dispatch success:`, response.status);
+          sentToWebhook = true;
+        } catch (initialErr: any) {
+          // If 404, try to toggle because n8n has both test (/webhook-test/) and active (/webhook/) endpoints
+          if (initialErr.response?.status === 404) {
+            let fallbackURL = webhookURL;
+            if (webhookURL.includes("/webhook-test/")) {
+              fallbackURL = webhookURL.replace("/webhook-test/", "/webhook/");
+            } else if (webhookURL.includes("/webhook/")) {
+              fallbackURL = webhookURL.replace("/webhook/", "/webhook-test/");
+            }
+
+            if (fallbackURL !== webhookURL) {
+              console.log(`[PublishTask] [${postId}] Webhook returned 404. Attempting automatic fallback retry to: ${fallbackURL}`);
+              response = await axios.post(fallbackURL, payload, {
+                headers,
+                timeout: 25000
+              });
+              console.log(`[PublishTask] [${postId}] Webhook fallback dispatch success:`, response?.status);
+              sentToWebhook = true;
+            } else {
+              throw initialErr;
+            }
+          } else {
+            throw initialErr;
+          }
+        }
+      } catch (err: any) {
+        console.error(`[PublishTask] [${postId}] Failed to send to webhook:`, err.message);
+        webhookError = err.message;
+      }
+    }
+
     for (const platform of platforms) {
       try {
         console.log(`[PublishTask] Processing ${platform}...`);
-        // Get social account for this platform
-        const { data: account, error: accountError } = await supabase
-          .from("social_accounts")
-          .select("*")
-          .eq("user_id", userId)
-          .eq("platform", platform)
-          .single();
-
-        if (accountError || !account) {
-          console.error(`[PublishTask] Account not found for ${platform}`, accountError);
-          throw new Error(`${platform} account not connected`);
-        }
 
         if (platform === "linkedin") {
+          // Get social account for this platform
+          const { data: account, error: accountError } = await supabase
+            .from("social_accounts")
+            .select("*")
+            .eq("user_id", userId)
+            .eq("platform", platform)
+            .single();
+
+          if (accountError || !account) {
+            console.error(`[PublishTask] Account not found for ${platform}`, accountError);
+            throw new Error(`${platform} account not connected`);
+          }
+
           console.log(`[PublishTask] [${postId}] Sending to LinkedIn for account: ${account.account_id}`);
           
           let mediaAsset = null;
@@ -572,6 +705,12 @@ async function startServer() {
           );
           console.log(`[PublishTask] LinkedIn success:`, liResponse.data.id);
           results.push({ platform, id: liResponse.data.id });
+        } else if (platform === "facebook" || platform === "instagram") {
+          if (webhookError) {
+            throw new Error(`n8n webhook dispatch failed: ${webhookError}`);
+          }
+          console.log(`[PublishTask] [${postId}] ${platform} successfully dispatched via webhook.`);
+          results.push({ platform, status: "webhook_sent" });
         } else {
           console.log(`[PublishTask] [${postId}] ${platform} not implemented, simulating...`);
           if (post.media_url) {

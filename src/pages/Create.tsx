@@ -323,6 +323,9 @@ export function Create() {
     const formattedTag = tag.startsWith('#') ? tag : `#${tag}`;
     if (!caption.includes(formattedTag)) {
       setCaption(prev => prev.trim() + ' ' + formattedTag);
+      showToast(`Added ${formattedTag}`, 'success');
+    } else {
+      showToast('Hashtag already added', 'info');
     }
   };
 
@@ -409,6 +412,7 @@ export function Create() {
 
   const applyCaption = (text: string) => {
     setCaption(text);
+    showToast('Caption applied!', 'success');
   };
 
   const handleSave = async (status: 'draft' | 'scheduled' | 'published') => {
@@ -966,14 +970,18 @@ export function Create() {
                 </div>
                 <div className="space-y-3">
                   {suggestions.captions.map((cap, idx) => (
-                    <button
+                    <motion.button
                       key={idx}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => applyCaption(cap.text)}
-                      className="w-full text-left p-4 rounded-2xl bg-gray-50 hover:bg-orange-50 transition-colors group"
+                      className="w-full text-left p-4 rounded-2xl bg-gray-50 hover:bg-orange-50 transition-colors group relative overflow-hidden"
                     >
+                      <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <CheckCircle size={14} className="text-orange-500" />
+                      </div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-orange-500 block mb-1">{cap.style}</span>
-                      <p className="text-sm text-gray-700 line-clamp-3">{cap.text}</p>
-                    </button>
+                      <p className="text-sm text-gray-700 line-clamp-3 font-medium">{cap.text}</p>
+                    </motion.button>
                   ))}
                 </div>
               </section>
@@ -987,7 +995,8 @@ export function Create() {
                       <h3 className="font-bold">Hashtags</h3>
                     </div>
                     <div className="flex gap-2">
-                      <button 
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => {
                           const allTags = suggestions.hashtags.map(t => t.startsWith('#') ? t : `#${t}`).join(' ');
                           setCaption(prev => prev.trim() + '\n\n' + allTags);
@@ -996,8 +1005,9 @@ export function Create() {
                         className="text-[10px] font-bold uppercase tracking-widest bg-blue-50 px-2 py-1 rounded-lg hover:bg-blue-100 transition-colors"
                       >
                         Add All
-                      </button>
-                      <button 
+                      </motion.button>
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => {
                           navigator.clipboard.writeText(suggestions.hashtags.map(t => t.startsWith('#') ? t : `#${t}`).join(' '));
                           showToast('Hashtags copied to clipboard!', 'success');
@@ -1005,76 +1015,25 @@ export function Create() {
                         className="text-[10px] font-bold uppercase tracking-widest bg-gray-50 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
                       >
                         Copy
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {suggestions.hashtags.map((tag, idx) => (
-                      <button 
+                      <motion.button 
                         key={idx} 
+                        whileTap={{ scale: 0.9 }}
                         onClick={() => addHashtagToCaption(tag)}
-                        className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition-colors flex items-center gap-1 group"
+                        className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition-colors flex items-center gap-1 group active:bg-blue-200"
                       >
                         {tag.startsWith('#') ? tag : `#${tag}`}
                         <span className="opacity-0 group-hover:opacity-100 text-[8px] font-bold">+</span>
-                      </button>
+                      </motion.button>
                     ))}
-                  </div>
-                </section>
-
-                <section className="bg-white p-6 rounded-[2rem] border border-gray-50 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between gap-2 text-purple-600">
-                    <div className="flex items-center gap-2">
-                      <CalendarClock size={18} />
-                      <h3 className="font-bold">Best Time</h3>
-                    </div>
-                    {suggestions.bestTime.time && (
-                      <button 
-                        onClick={() => {
-                          // Simple heuristic to set a future date
-                          const now = new Date();
-                          now.setHours(now.getHours() + 24); // Default to tomorrow
-                          const dateStr = now.toISOString().slice(0, 16);
-                          setScheduledTime(dateStr);
-                          setIsScheduled(true);
-                          showToast(`Set to ${suggestions.bestTime.time} (approximate)`, 'info');
-                        }}
-                        className="text-[10px] font-bold uppercase tracking-widest bg-purple-100 px-2 py-1 rounded-lg hover:bg-purple-200 transition-colors"
-                      >
-                        Apply
-                      </button>
-                    )}
-                  </div>
-                  <div className="p-4 bg-purple-50 rounded-2xl">
-                    <p className="font-bold text-purple-700 text-sm">{suggestions.bestTime.time}</p>
-                    <p className="text-xs text-purple-600 mt-1">{suggestions.bestTime.reason}</p>
                   </div>
                 </section>
               </div>
             </div>
-
-            {/* Suggestions */}
-            <section className="bg-white p-8 rounded-[2.5rem] border border-gray-50 shadow-sm space-y-6">
-              <div className="flex items-center gap-3 text-amber-600">
-                <div className="p-2 bg-amber-50 rounded-xl">
-                  <Lightbulb size={24} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg">Growth Tips</h3>
-                  <p className="text-xs text-gray-400 font-medium">AI-powered suggestions to boost engagement</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {suggestions.improvements.map((tip, idx) => (
-                  <div key={idx} className="flex items-start gap-4 p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 group hover:bg-amber-50 transition-colors">
-                    <div className="w-8 h-8 bg-white text-amber-600 rounded-xl flex items-center justify-center text-sm font-bold shadow-sm group-hover:scale-110 transition-transform">
-                      {idx + 1}
-                    </div>
-                    <p className="text-sm text-amber-900/80 font-medium leading-relaxed">{tip}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
           </motion.div>
         )}
       </AnimatePresence>
